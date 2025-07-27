@@ -1,0 +1,245 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                     String        @id @default(cuid())
+  email                  String        @unique
+  password               String
+  role                   Role          @default(DOCTOR)
+  isEmailVerified        Boolean       @default(false)
+  emailVerificationToken String?       @unique
+  passwordResetToken     String?       @unique
+  passwordResetExpires   DateTime?
+  organizationId         String?
+  organization           Organization? @relation(fields: [organizationId], references: [id])
+  name                   String?
+  specialization         String?
+  appointments           Appointment[]
+  ehrRecords             EHRRecord[]
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+
+  @@map("users")
+}
+
+model Organization {
+  id                 String              @id @default(cuid())
+  name               String
+  address            String?
+  gstNumber          String?
+  contactEmail       String?
+  contactPhone       String?
+  users              User[]
+  clinics            Clinic[]
+  organizationAddOns OrganizationAddOn[]
+  subscriptions      Subscription[]
+  backups            Backup[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@map("organizations")
+}
+
+model Clinic {
+  id             String        @id @default(cuid())
+  name           String
+  address        String?
+  phone          String?
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  patients       Patient[]
+  appointments   Appointment[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@map("clinics")
+}
+
+model AddOn {
+  id                 String              @id @default(cuid())
+  name               String              @unique
+  description        String?
+  price              Float // Price in INR
+  isUsageBased       Boolean             @default(false)
+  usageUnit          String?
+  organizationAddOns OrganizationAddOn[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@map("addons")
+}
+
+model OrganizationAddOn {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  addOnId        String
+  addOn          AddOn        @relation(fields: [addOnId], references: [id], onDelete: Cascade)
+  isActive       Boolean      @default(true)
+  usageCount     Int          @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, addOnId])
+  @@map("organization_addons")
+}
+
+model Subscription {
+  id                     String             @id @default(cuid())
+  organizationId         String
+  organization           Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  razorpaySubscriptionId String?            @unique
+  status                 SubscriptionStatus @default(ACTIVE)
+  amount                 Float // Total amount in INR
+  startDate              DateTime           @default(now())
+  endDate                DateTime?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  @@map("subscriptions")
+}
+
+model Patient {
+  id          String    @id @default(cuid())
+  name        String
+  phone       String    @unique // PRIMARY UNIQUE IDENTIFIER
+  email       String? // Optional, not unique
+  dateOfBirth DateTime?
+  gender      Gender?
+  address     String?
+
+  // Clinic relationship
+  clinicId String
+  clinic   Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+
+  // Medical history
+  appointments Appointment[]
+  ehrRecords   EHRRecord[]
+
+  // Additional patient info
+  emergencyContact  String? // Emergency contact number
+  bloodGroup        String?
+  allergies         String?
+  chronicConditions String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([phone]) // Index for fast phone number searches
+  @@index([clinicId, phone]) // Composite index for clinic-specific searches
+  @@map("patients")
+}
+
+model Appointment {
+  id              String            @id @default(cuid())
+  patientId       String
+  patient         Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctorId        String
+  doctor          User              @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  clinicId        String
+  clinic          Clinic            @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  appointmentDate DateTime
+  duration        Int               @default(30)
+  status          AppointmentStatus @default(SCHEDULED)
+  notes           String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@map("appointments")
+}
+
+model EHRRecord {
+  id               String   @id @default(cuid())
+  patientId        String
+  patient          Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctorId         String
+  doctor           User     @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  visitDate        DateTime @default(now())
+  chiefComplaint   String?
+  history          String?
+  examination      String?
+  diagnosis        String?
+  treatment        String?
+  prescription     String?
+  notes            String?
+  transcribedNotes String?
+  ocrNotes         String?
+  aiSummary        String?
+  attachments      String[]
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("ehr_records")
+}
+
+model Backup {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  type           BackupType
+  fileUrl        String
+  createdAt      DateTime     @default(now())
+  createdBy      String // User ID who triggered the backup (optional)
+
+  @@map("backups")
+}
+
+model Invite {
+  id             String   @id @default(cuid())
+  email          String
+  token          String   @unique
+  role           Role     @default(DOCTOR)
+  organizationId String
+  invitedBy      String
+  isUsed         Boolean  @default(false)
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("invites")
+}
+
+enum Role {
+  ADMIN
+  DOCTOR
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  INACTIVE
+  CANCELLED
+  EXPIRED
+}
+
+enum BackupType {
+  CLOUD
+  LOCAL
+}
